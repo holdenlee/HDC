@@ -32,6 +32,8 @@ import Numeric.Algebra
 import TypeSyns
 import qualified Data.Vector as Vec
 
+import Utilities
+
 data R = RRef I
 
 data V = VRef I | Bind V V | Unbind V V | Add V V | Rot R V | RotInv R V
@@ -80,7 +82,8 @@ data HDC r v m = HDC {bind :: v -> v -> v,
     add :: v -> v -> v,
     mkNewRef :: m V, -- should be ref here
     mkNewRot :: m R,
-    extracts :: v -> m [I]}
+    extracts :: v -> m [I],
+    sortByActivation :: v -> m [(I, I)]}
 
 --permutations
 type KanervaRot = Vec.Vector I
@@ -99,8 +102,11 @@ instance (Additive a) => Additive (Vec.Vector a) where
 instance (Multiplicative a) => Multiplicative (Vec.Vector a) where 
     (*) = Vec.zipWith (*)
 
+dot :: (Additive a, Multiplicative a) => Vec.Vector a -> Vec.Vector a -> a
+dot v1 v2 = Vec.foldl1 (+) (v1 * v2)
+
 randomPM :: MonadRandom m => m I
-randomPM = fmap (\case {True -> 1; False -> -1}) getRandom 
+randomPM = fmap (\case {True -> 1; False -> -1}) getRandom
 
 kanerva :: HDC KanervaRot (Vec.Vector I) KanervaMonad
 kanerva = HDC
@@ -121,7 +127,15 @@ kanerva = HDC
        let l = length (s ^. rots)
        modify (& rots %~ (++[randPerm]))
        return (RRef l),
-     extracts = \v -> return []}
+     extracts = \v -> do
+                  s <- get
+                  sorted <- f v
+                  return $ map snd $ filter ((>= s ^. threshold) . fst) sorted,
+     sortByActivation = f} where
+        f = \v -> do
+              s <- get
+              return $ reverse $ sort $ zimap (\i x -> (i, x `dot` v)) (s ^. mems)
+--map (\x -> (x, x `dot` v)) (s ^. mems)
 
 {-
 instance HDC Kanerva KanervaRot KanervaMapping where
